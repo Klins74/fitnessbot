@@ -2,7 +2,7 @@
 Обработчики тренировок
 """
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from datetime import datetime
 
 from keyboards import get_workout_actions_keyboard, get_feeling_keyboard, get_main_menu_keyboard
@@ -19,10 +19,40 @@ from db.session import async_session_maker
 
 router = Router()
 
+# Дни недели на казахском
+DAYS_KK = {
+    0: "Дүйсенбі",
+    1: "Сейсенбі", 
+    2: "Сәрсенбі",
+    3: "Бейсенбі",
+    4: "Жұма",
+    5: "Сенбі",
+    6: "Жексенбі"
+}
+
+
+def get_workout_menu_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура меню тренировок"""
+    today = datetime.now().weekday()
+    today_emoji = "📍"
+    
+    buttons = [
+        [InlineKeyboardButton(
+            text=f"{today_emoji if i == today else '📅'} {DAYS_KK[i]}", 
+            callback_data=f"workout_day:{i}"
+        )]
+        for i in [0, 2, 4, 6]  # Пн, Ср, Пт, Вс
+    ]
+    
+    buttons.append([InlineKeyboardButton(text="📋 Апта жоспары", callback_data="workout:week")])
+    buttons.append([InlineKeyboardButton(text="◀️ Артқа", callback_data="back_to_menu")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 
 @router.message(F.text == MENU["today_workout"])
-async def today_workout(message: Message):
-    """Показать тренировку на сегодня"""
+async def workout_menu(message: Message):
+    """Показать меню тренировок"""
     async with async_session_maker() as session:
         user = await get_user_by_telegram_id(session, message.from_user.id)
         
@@ -30,28 +60,120 @@ async def today_workout(message: Message):
             await message.answer(ERRORS["no_profile"])
             return
         
-        # Определяем день недели (0 = понедельник, 6 = воскресенье)
         today_index = datetime.now().weekday()
+        today_name = DAYS_KK[today_index]
         
-        # Получаем тренировку
+        # Получаем тренировку на сегодня
         workout = await get_workout_for_user(session, user, today_index)
         
-        if not workout:
-            await message.answer(WORKOUTS["no_workout_today"])
+        if workout:
+            workout_text = f"""🏋️ Бүгін: {today_name}
+
+📝 Жаттығу: {workout.title}
+
+{format_workout({"title": workout.title, "exercises": workout.exercises_json})}
+"""
+            await message.answer(
+                workout_text,
+                reply_markup=get_workout_actions_keyboard(workout.id)
+            )
+        else:
+            # Показываем меню выбора дня
+            text = f"""🏋️ Жаттығулар
+
+📍 Бүгін: {today_name}
+
+Бүгін демалыс күні! 
+Басқа күнді таңдап, жаттығуды қарай аласыз:"""
+            
+            await message.answer(text, reply_markup=get_workout_menu_keyboard())
+
+
+@router.callback_query(F.data.startswith("workout_day:"))
+async def show_workout_for_day(callback: CallbackQuery):
+    """Показать тренировку для выбранного дня"""
+    day_index = int(callback.data.split(":")[1])
+    day_name = DAYS_KK[day_index]
+    
+    async with async_session_maker() as session:
+        user = await get_user_by_telegram_id(session, callback.from_user.id)
+        
+        if not user:
+            await callback.answer("Профиль табылмады", show_alert=True)
             return
         
-        # Форматируем и отправляем тренировку
-        workout_dict = {
-            "title": workout.title,
-            "exercises": workout.exercises_json
-        }
+        workout = await get_workout_for_user(session, user, day_index)
         
-        workout_text = format_workout(workout_dict)
+        if workout:
+            workout_text = f"""📅 {day_name}
+
+📝 Жаттығу: {workout.title}
+
+{format_workout({"title": workout.title, "exercises": workout.exercises_json})}
+"""
+            await callback.message.edit_text(
+                workout_text,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="✅ Орындадым", callback_data=f"complete:{workout.id}")],
+                    [InlineKeyboardButton(text="◀️ Артқа", callback_data="workout:menu")]
+                ])
+            )
+        else:
+            await callback.message.edit_text(
+                f"📅 {day_name}\n\nБұл күні демалыс 😊",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="◀️ Артқа", callback_data="workout:menu")]
+                ])
+            )
+    
+    await callback.answer()
+
+
+@router.callback_query(F.data == "workout:week")
+async def show_week_plan(callback: CallbackQuery):
+    """Показать план на неделю"""
+    async with async_session_maker() as session:
+        user = await get_user_by_telegram_id(session, callback.from_user.id)
         
-        await message.answer(
-            workout_text,
-            reply_markup=get_workout_actions_keyboard(workout.id)
+        if not user:
+            await callback.answer("Профиль табылмады", show_alert=True)
+            return
+        
+        text = "📋 Апта жоспары:\n\n"
+        
+        for day_index in range(7):
+            day_name = DAYS_KK[day_index]
+            workout = await get_workout_for_user(session, user, day_index)
+            
+            if workout:
+                text += f"📅 {day_name}: {workout.title}\n"
+            else:
+                text += f"😴 {day_name}: Демалыс\n"
+        
+        await callback.message.edit_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="◀️ Артқа", callback_data="workout:menu")]
+            ])
         )
+    
+    await callback.answer()
+
+
+@router.callback_query(F.data == "workout:menu")
+async def back_to_workout_menu(callback: CallbackQuery):
+    """Вернуться в меню тренировок"""
+    today_index = datetime.now().weekday()
+    today_name = DAYS_KK[today_index]
+    
+    text = f"""🏋️ Жаттығулар
+
+📍 Бүгін: {today_name}
+
+Күнді таңдаңыз:"""
+    
+    await callback.message.edit_text(text, reply_markup=get_workout_menu_keyboard())
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("complete:"))
@@ -78,7 +200,7 @@ async def process_feeling(callback: CallbackQuery):
         user = await get_user_by_telegram_id(session, callback.from_user.id)
         
         if not user:
-            await callback.answer("Профиль не найден", show_alert=True)
+            await callback.answer("Профиль табылмады", show_alert=True)
             return
         
         # Сохраняем выполненную тренировку
@@ -90,10 +212,8 @@ async def process_feeling(callback: CallbackQuery):
         )
         
         # Получаем название тренировки для AI
-        workout = await session.get(
-            __import__('db.models', fromlist=['Workout']).Workout, 
-            workout_id
-        )
+        from db.models import Workout
+        workout = await session.get(Workout, workout_id)
         workout_title = workout.title if workout else "Жаттығу"
         
         # Формируем профиль для AI
@@ -131,7 +251,7 @@ async def skip_workout(callback: CallbackQuery):
     """Пропустить тренировку"""
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(
-        "Добре! Тренировку можно выполнить позже.",
+        "Жақсы! Кейінірек орындай аласыз 💪",
         reply_markup=get_main_menu_keyboard()
     )
     await callback.answer()
@@ -151,25 +271,48 @@ async def show_progress(message: Message):
         stats = await get_user_workout_stats(session, user.id, days=30)
         
         if stats["total"] == 0:
-            await message.answer(PROGRESS["no_workouts"])
+            await message.answer(
+                PROGRESS["no_workouts"],
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🏋️ Жаттығуға бастау", callback_data="workout:menu")],
+                    [InlineKeyboardButton(text="◀️ Артқа", callback_data="back_to_menu")]
+                ])
+            )
             return
         
         # Форматируем статистику
         feeling_map = {
-            "easy": WORKOUTS["feeling_easy"],
-            "normal": WORKOUTS["feeling_normal"],
-            "hard": WORKOUTS["feeling_hard"],
+            "easy": "😊 Жеңіл",
+            "normal": "💪 Қалыпты",
+            "hard": "😅 Қиын",
             None: "—"
         }
         
         avg_feeling_text = feeling_map.get(stats["average_feeling"], "—")
         
-        progress_text = (
-            PROGRESS["stats_title"] +
-            PROGRESS["total_workouts"].format(count=stats["total"]) +
-            PROGRESS["last_7_days"].format(count=stats["last_7_days"]) +
-            PROGRESS["last_30_days"].format(count=stats["last_30_days"]) +
-            PROGRESS["average_feeling"].format(feeling=avg_feeling_text)
-        )
+        # Визуальный прогресс бар
+        progress_percent = min(stats["last_7_days"] / 4 * 100, 100)
+        filled = int(progress_percent / 10)
+        bar = "🟩" * filled + "⬜" * (10 - filled)
         
-        await message.answer(progress_text)
+        progress_text = f"""📊 Менің нәтижелерім
+
+🏆 Барлығы: {stats["total"]} жаттығу
+📅 Соңғы 7 күн: {stats["last_7_days"]} жаттығу
+📆 Соңғы 30 күн: {stats["last_30_days"]} жаттығу
+
+{bar} {progress_percent:.0f}%
+Мақсат: 4 жаттығу/апта
+
+😊 Орташа сезім: {avg_feeling_text}
+
+💪 Жалғастыра беріңіз!
+"""
+        
+        await message.answer(
+            progress_text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🏋️ Жаттығуға", callback_data="workout:menu")],
+                [InlineKeyboardButton(text="◀️ Артқа", callback_data="back_to_menu")]
+            ])
+        )
