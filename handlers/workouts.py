@@ -36,13 +36,14 @@ def get_workout_menu_keyboard() -> InlineKeyboardMarkup:
     today = datetime.now().weekday()
     today_emoji = "📍"
     
-    buttons = [
-        [InlineKeyboardButton(
-            text=f"{today_emoji if i == today else '📅'} {DAYS_KK[i]}", 
+    # Все 7 дней недели
+    buttons = []
+    for i in range(7):
+        emoji = today_emoji if i == today else "📅"
+        buttons.append([InlineKeyboardButton(
+            text=f"{emoji} {DAYS_KK[i]}", 
             callback_data=f"workout_day:{i}"
-        )]
-        for i in [0, 2, 4, 6]  # Пн, Ср, Пт, Вс
-    ]
+        )])
     
     buttons.append([InlineKeyboardButton(text="📋 Апта жоспары", callback_data="workout:week")])
     buttons.append([InlineKeyboardButton(text="◀️ Артқа", callback_data="back_to_menu")])
