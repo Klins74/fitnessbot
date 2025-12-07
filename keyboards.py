@@ -78,7 +78,8 @@ def get_workout_actions_keyboard(workout_id: int) -> InlineKeyboardMarkup:
     """Клавиатура действий с тренировкой"""
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=WORKOUTS["completed_button"], callback_data=f"complete:{workout_id}")],
-        [InlineKeyboardButton(text=WORKOUTS["skip_button"], callback_data="skip")]
+        [InlineKeyboardButton(text=WORKOUTS["skip_button"], callback_data="skip")],
+        [InlineKeyboardButton(text=BUTTONS["back"], callback_data="back_to_menu")]
     ])
     return keyboard
 

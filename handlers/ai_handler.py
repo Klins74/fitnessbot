@@ -42,7 +42,12 @@ async def ai_trainer_menu(message: Message, state: FSMContext):
             return
     
     await state.set_state(AIStates.waiting_for_question)
-    await message.answer(AI["trainer_greeting"])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Артқа", callback_data="ai:back")]
+    ])
+    
+    await message.answer(AI["trainer_greeting"], reply_markup=keyboard)
 
 
 @router.message(AIStates.waiting_for_question)
@@ -164,4 +169,16 @@ async def handle_nutrition_action(callback: CallbackQuery):
                 reply_markup=get_main_menu_keyboard()
             )
     
+    await callback.answer()
+
+
+@router.callback_query(F.data == "ai:back")
+async def ai_back_to_menu(callback: CallbackQuery, state: FSMContext):
+    """Вернуться в главное меню из AI раздела"""
+    await state.clear()
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer(
+        "📱 Басты мәзір",
+        reply_markup=get_main_menu_keyboard()
+    )
     await callback.answer()
