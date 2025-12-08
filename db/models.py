@@ -30,12 +30,18 @@ class User(Base):
     reminder_time = Column(String(5))  # HH:MM format
     reminder_days = Column(JSON)  # список дней недели: ["monday", "tuesday", ...]
     
+    # Streak (серия тренировок)
+    current_streak = Column(Integer, default=0)
+    best_streak = Column(Integer, default=0)
+    last_workout_date = Column(Date)
+    
     # Метаданные
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Связи
     user_workouts = relationship("UserWorkout", back_populates="user", cascade="all, delete-orphan")
+    achievements = relationship("UserAchievement", back_populates="user", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<User(telegram_id={self.telegram_id}, goal={self.goal})>"
@@ -89,3 +95,37 @@ class UserWorkout(Base):
     
     def __repr__(self):
         return f"<UserWorkout(user_id={self.user_id}, workout_id={self.workout_id}, date={self.date})>"
+
+
+class Achievement(Base):
+    """Достижение/Badge"""
+    __tablename__ = "achievements"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(50), unique=True, nullable=False)  # e.g. "first_workout"
+    title = Column(String(100), nullable=False)  # "Бірінші жаттығу"
+    description = Column(String(200))  # Описание
+    emoji = Column(String(10))  # 🎯
+    
+    # Связи
+    user_achievements = relationship("UserAchievement", back_populates="achievement")
+    
+    def __repr__(self):
+        return f"<Achievement(code={self.code}, title={self.title})>"
+
+
+class UserAchievement(Base):
+    """Достижение пользователя"""
+    __tablename__ = "user_achievements"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    achievement_id = Column(Integer, ForeignKey("achievements.id"), nullable=False)
+    earned_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Связи
+    user = relationship("User", back_populates="achievements")
+    achievement = relationship("Achievement", back_populates="user_achievements")
+    
+    def __repr__(self):
+        return f"<UserAchievement(user_id={self.user_id}, achievement_id={self.achievement_id})>"

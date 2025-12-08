@@ -14,6 +14,7 @@ from services.workouts import (
     get_user_workout_stats
 )
 from services.ai_service import get_ai_advice
+from services.achievements import update_streak, check_and_award_achievements
 from utils.formatters import format_workout
 from db.session import async_session_maker
 
@@ -268,6 +269,9 @@ async def process_feeling(callback: CallbackQuery):
     workout_id = int(parts[1])
     feeling = parts[2]
     
+    streak_info = None
+    new_achievements = []
+    
     async with async_session_maker() as session:
         user = await get_user_by_telegram_id(session, callback.from_user.id)
         
@@ -282,6 +286,12 @@ async def process_feeling(callback: CallbackQuery):
             workout_id,
             feeling=feeling
         )
+        
+        # Обновляем streak
+        streak_info = await update_streak(session, user)
+        
+        # Проверяем достижения
+        new_achievements = await check_and_award_achievements(session, user)
         
         # Получаем название тренировки для AI
         from db.models import Workout
@@ -298,8 +308,28 @@ async def process_feeling(callback: CallbackQuery):
     
     await callback.message.edit_reply_markup(reply_markup=None)
     
+    # Формируем сообщение о streak
+    streak_text = ""
+    if streak_info and streak_info.get("streak", 0) > 0:
+        streak = streak_info["streak"]
+        fire = "🔥" * min(streak, 5)
+        streak_text = f"\n\n{fire} *Серия: {streak} күн!*"
+        
+        if streak_info.get("new_record"):
+            streak_text += " 🏆 Жаңа рекорд!"
+    
+    # Формируем сообщение о достижениях
+    achievements_text = ""
+    if new_achievements:
+        achievements_text = "\n\n🎉 *Жаңа жетістіктер:*\n"
+        for ach in new_achievements:
+            achievements_text += f"  {ach.emoji} {ach.title}\n"
+    
     # Отправляем базовый ответ
-    await callback.message.answer(WORKOUTS["thanks_feedback"])
+    await callback.message.answer(
+        WORKOUTS["thanks_feedback"] + streak_text + achievements_text,
+        parse_mode="Markdown"
+    )
     
     # Получаем AI-совет (асинхронно)
     try:
@@ -367,14 +397,22 @@ async def show_progress(message: Message):
         filled = int(progress_percent / 10)
         bar = "🟩" * filled + "⬜" * (10 - filled)
         
-        progress_text = f"""📊 Менің нәтижелерім
+        # Streak info
+        current_streak = user.current_streak or 0
+        best_streak = user.best_streak or 0
+        fire = "🔥" * min(current_streak, 5) if current_streak > 0 else ""
+        
+        progress_text = f"""📊 *Менің нәтижелерім*
 
-🏆 Барлығы: {stats["total"]} жаттығу
+{fire} *Серия: {current_streak} күн*
+🏆 Рекорд: {best_streak} күн
+
 📅 Соңғы 7 күн: {stats["last_7_days"]} жаттығу
 📆 Соңғы 30 күн: {stats["last_30_days"]} жаттығу
+🎯 Барлығы: {stats["total"]} жаттығу
 
 {bar} {progress_percent:.0f}%
-Мақсат: 4 жаттығу/апта
+_Мақсат: 4 жаттығу/апта_
 
 😊 Орташа сезім: {avg_feeling_text}
 
@@ -383,8 +421,150 @@ async def show_progress(message: Message):
         
         await message.answer(
             progress_text,
+            parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🏆 Жетістіктерім", callback_data="achievements")],
+                [InlineKeyboardButton(text="📜 Тарих", callback_data="workout:history")],
                 [InlineKeyboardButton(text="🏋️ Жаттығуға", callback_data="workout:menu")],
                 [InlineKeyboardButton(text="◀️ Артқа", callback_data="back_to_menu")]
             ])
         )
+
+
+@router.callback_query(F.data == "achievements")
+async def show_achievements(callback: CallbackQuery):
+    """Показать достижения пользователя"""
+    from services.achievements import get_user_achievements, format_achievements_text
+    
+    async with async_session_maker() as session:
+        user = await get_user_by_telegram_id(session, callback.from_user.id)
+        
+        if not user:
+            await callback.answer("Профиль табылмады", show_alert=True)
+            return
+        
+        achievements = await get_user_achievements(session, user.id)
+        text = await format_achievements_text(achievements)
+        
+        # Показываем количество достижений
+        total_achievements = 9  # Всего достижений в системе
+        earned_count = len(achievements)
+        
+        header = f"🏆 *Жетістіктер: {earned_count}/{total_achievements}*\n\n"
+        
+        await callback.message.edit_text(
+            header + text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📊 Нәтижелерге", callback_data="progress")],
+                [InlineKeyboardButton(text="◀️ Артқа", callback_data="back_to_menu")]
+            ])
+        )
+    
+    await callback.answer()
+
+
+@router.callback_query(F.data == "workout:history")
+async def show_workout_history(callback: CallbackQuery):
+    """Показать историю тренировок за последние 30 дней"""
+    from sqlalchemy import select
+    from db.models import UserWorkout, Workout
+    from datetime import date, timedelta
+    
+    async with async_session_maker() as session:
+        user = await get_user_by_telegram_id(session, callback.from_user.id)
+        
+        if not user:
+            await callback.answer("Профиль табылмады", show_alert=True)
+            return
+        
+        # Получаем тренировки за 30 дней
+        start_date = date.today() - timedelta(days=30)
+        result = await session.execute(
+            select(UserWorkout, Workout)
+            .join(Workout)
+            .where(
+                UserWorkout.user_id == user.id,
+                UserWorkout.date >= start_date
+            )
+            .order_by(UserWorkout.date.desc())
+            .limit(15)
+        )
+        
+        workouts = result.all()
+        
+        if not workouts:
+            text = "📜 *Тарих*\n\nСоңғы 30 күнде жаттығу жоқ."
+        else:
+            text = "📜 *Соңғы жаттығулар:*\n\n"
+            
+            for uw, w in workouts:
+                feeling_emoji = {"easy": "😊", "normal": "💪", "hard": "😅"}.get(uw.feeling, "")
+                text += f"📅 *{uw.date.strftime('%d.%m')}* - {w.title} {feeling_emoji}\n"
+        
+        await callback.message.edit_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📊 Нәтижелерге", callback_data="progress")],
+                [InlineKeyboardButton(text="◀️ Артқа", callback_data="back_to_menu")]
+            ])
+        )
+    
+    await callback.answer()
+
+
+@router.callback_query(F.data == "progress")
+async def back_to_progress(callback: CallbackQuery):
+    """Вернуться к прогрессу через callback"""
+    async with async_session_maker() as session:
+        user = await get_user_by_telegram_id(session, callback.from_user.id)
+        
+        if not user:
+            await callback.answer("Профиль табылмады", show_alert=True)
+            return
+        
+        stats = await get_user_workout_stats(session, user.id, days=30)
+        
+        feeling_map = {
+            "easy": "😊 Жеңіл",
+            "normal": "💪 Қалыпты", 
+            "hard": "😅 Қиын",
+            None: "—"
+        }
+        
+        avg_feeling_text = feeling_map.get(stats["average_feeling"], "—")
+        progress_percent = min(stats["last_7_days"] / 4 * 100, 100)
+        filled = int(progress_percent / 10)
+        bar = "🟩" * filled + "⬜" * (10 - filled)
+        
+        current_streak = user.current_streak or 0
+        best_streak = user.best_streak or 0
+        fire = "🔥" * min(current_streak, 5) if current_streak > 0 else ""
+        
+        progress_text = f"""📊 *Менің нәтижелерім*
+
+{fire} *Серия: {current_streak} күн*
+🏆 Рекорд: {best_streak} күн
+
+📅 Соңғы 7 күн: {stats["last_7_days"]} жаттығу
+📆 Соңғы 30 күн: {stats["last_30_days"]} жаттығу
+🎯 Барлығы: {stats["total"]} жаттығу
+
+{bar} {progress_percent:.0f}%
+
+💪 Жалғастыра беріңіз!
+"""
+        
+        await callback.message.edit_text(
+            progress_text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🏆 Жетістіктерім", callback_data="achievements")],
+                [InlineKeyboardButton(text="📜 Тарих", callback_data="workout:history")],
+                [InlineKeyboardButton(text="🏋️ Жаттығуға", callback_data="workout:menu")],
+                [InlineKeyboardButton(text="◀️ Артқа", callback_data="back_to_menu")]
+            ])
+        )
+    
+    await callback.answer()
