@@ -7,7 +7,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from config import config
-from db.session import init_db
+from db.session import init_db, async_session_maker
 from handlers import onboarding, menu, workouts, ai_handler, video_workouts, contacts
 
 # Настройка логирования
@@ -23,6 +23,40 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def init_data():
+    """Инициализация данных при запуске"""
+    from services.achievements import init_achievements
+    from load_workouts import generate_all_templates
+    from services.workouts import create_workout_template
+    from sqlalchemy import select
+    from db.models import Workout
+    
+    async with async_session_maker() as session:
+        # Проверяем есть ли тренировки
+        result = await session.execute(select(Workout).limit(1))
+        if not result.scalar_one_or_none():
+            logger.info("Загрузка тренировок...")
+            templates = generate_all_templates()
+            for t in templates:
+                try:
+                    await create_workout_template(
+                        session,
+                        code=t["code"],
+                        title=t["title"],
+                        level=t["level"],
+                        workout_type=t["workout_type"],
+                        goal=t["goal"],
+                        day_index=t["day_index"],
+                        exercises=t["exercises"]
+                    )
+                except:
+                    pass
+            logger.info(f"Загружено {len(templates)} тренировок")
+        
+        # Инициализация достижений
+        await init_achievements(session)
+
+
 async def main():
     """Основная функция запуска бота"""
     # Валидация конфигурации
@@ -36,6 +70,10 @@ async def main():
     logger.info("Инициализация базы данных...")
     await init_db()
     logger.info("База данных готова")
+    
+    # Инициализация данных (тренировки, достижения)
+    await init_data()
+    logger.info("Данные инициализированы")
     
     # Создание бота и диспетчера
     bot = Bot(token=config.BOT_TOKEN)
