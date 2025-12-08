@@ -16,7 +16,14 @@ async def get_workout_for_user(
     """
     Получить тренировку для пользователя на конкретный день
     day_index: 0-6 (понедельник-воскресенье)
+    
+    Использует fallback логику:
+    1. Точное совпадение по всем параметрам
+    2. Если нет - по level + workout_type + day_index
+    3. Если нет - по level + day_index
+    4. Если нет - любая тренировка на этот день
     """
+    # 1. Точное совпадение
     result = await session.execute(
         select(Workout).where(
             and_(
@@ -26,6 +33,41 @@ async def get_workout_for_user(
                 Workout.day_index == day_index
             )
         )
+    )
+    workout = result.scalar_one_or_none()
+    if workout:
+        return workout
+    
+    # 2. Без учета goal
+    result = await session.execute(
+        select(Workout).where(
+            and_(
+                Workout.level == user.level,
+                Workout.workout_type == user.workout_type,
+                Workout.day_index == day_index
+            )
+        )
+    )
+    workout = result.scalar_one_or_none()
+    if workout:
+        return workout
+    
+    # 3. Только level + day
+    result = await session.execute(
+        select(Workout).where(
+            and_(
+                Workout.level == user.level,
+                Workout.day_index == day_index
+            )
+        ).limit(1)
+    )
+    workout = result.scalar_one_or_none()
+    if workout:
+        return workout
+    
+    # 4. Любая тренировка на этот день
+    result = await session.execute(
+        select(Workout).where(Workout.day_index == day_index).limit(1)
     )
     return result.scalar_one_or_none()
 
