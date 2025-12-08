@@ -177,6 +177,7 @@ async def show_workout_for_day(callback: CallbackQuery):
             )
         else:
             # Профессиональное сообщение об отдыхе
+            next_workout = _get_next_workout_day(day_index)
             rest_text = f"""😴 *{day_name} - Демалыс күні*
 
 ✨ Бұл жоспарланған демалыс!
@@ -191,7 +192,7 @@ async def show_workout_for_day(callback: CallbackQuery):
 • Созылу жаттығулары
 • Жақсы ұйықтау
 
-📅 Келесі жаттығу: {self._get_next_workout_day(day_index)}"""
+📅 Келесі жаттығу: {next_workout}"""
             
             await callback.message.edit_text(
                 rest_text,
