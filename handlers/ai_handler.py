@@ -44,10 +44,13 @@ async def ai_trainer_menu(message: Message, state: FSMContext):
     await state.set_state(AIStates.waiting_for_question)
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ Артқа", callback_data="ai:back")]
+        [InlineKeyboardButton(text="◀️ Басты мәзірге оралу", callback_data="ai:back")]
     ])
     
-    await message.answer(AI["trainer_greeting"], reply_markup=keyboard)
+    await message.answer(
+        AI["trainer_greeting"],
+        reply_markup=keyboard
+    )
 
 
 @router.message(AIStates.waiting_for_question)
@@ -55,7 +58,8 @@ async def process_ai_question(message: Message, state: FSMContext):
     """Обработка вопроса к AI"""
     # Проверяем, не нажал ли пользователь кнопку меню
     if message.text in [MENU["today_workout"], MENU["my_progress"], MENU["edit_plan"], 
-                        MENU["reminders"], MENU["nutrition"], MENU["main_menu"]]:
+                        MENU["reminders"], MENU["nutrition"], MENU["main_menu"], 
+                        MENU["video_workouts"], MENU["contacts"]]:
         await state.clear()
         return
     
@@ -81,14 +85,20 @@ async def process_ai_question(message: Message, state: FSMContext):
         # Получаем ответ от AI
         answer = await ask_ai_trainer(message.text, user_profile)
         
-        # Удаляем сообщение о загрузке и отправляем ответ
+        # Удаляем сообщение о загрузке
         await loading_msg.delete()
+        
+        # Кнопка для продолжения диалога или выхода
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="◀️ Басты мәзірге оралу", callback_data="ai:back")]
+        ])
+        
         await message.answer(
             AI["ai_advice"].format(advice=answer),
-            reply_markup=get_main_menu_keyboard()
+            reply_markup=keyboard
         )
     
-    await state.clear()
+    # НЕ очищаем state - остаёмся в режиме диалога!
 
 
 @router.message(F.text == MENU["nutrition"])
