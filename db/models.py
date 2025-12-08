@@ -28,6 +28,7 @@ class User(Base):
     # Напоминания
     reminder_enabled = Column(Boolean, default=False)
     reminder_time = Column(String(5))  # HH:MM format
+    reminder_days = Column(JSON)  # список дней недели: ["monday", "tuesday", ...]
     
     # Метаданные
     created_at = Column(DateTime, default=datetime.utcnow)

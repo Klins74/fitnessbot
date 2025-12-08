@@ -8,7 +8,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from config import config
 from db.session import init_db
-from handlers import onboarding, menu, workouts, ai_handler
+from handlers import onboarding, menu, workouts, ai_handler, video_workouts, contacts
 
 # Настройка логирования
 logging.basicConfig(
@@ -47,6 +47,8 @@ async def main():
     dp.include_router(menu.router)
     dp.include_router(workouts.router)
     dp.include_router(ai_handler.router)
+    dp.include_router(video_workouts.router)
+    dp.include_router(contacts.router)
     
     logger.info("Бот запускается...")
     

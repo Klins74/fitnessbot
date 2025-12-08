@@ -27,6 +27,13 @@ class Config:
     # Groq AI (fast & free) - set via environment variable
     GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
     
+    # Fitness Center Info
+    CENTER_NAME = "Fitnesss"
+    CENTER_ADDRESS = "Алматы қ., Абай к-сі, 190/1"
+    CENTER_LATITUDE = 43.235
+    CENTER_LONGITUDE = 76.873
+    CENTER_PHONE = "+77780099123"
+    
     # Валидация возраста, роста, веса
     MIN_AGE = 10
     MAX_AGE = 90

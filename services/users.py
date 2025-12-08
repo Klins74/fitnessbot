@@ -54,7 +54,8 @@ async def update_reminder_settings(
     session: AsyncSession, 
     telegram_id: int, 
     enabled: bool, 
-    time: str | None = None
+    time: str | None = None,
+    days: list | None = None
 ) -> User | None:
     """Обновить настройки напоминаний"""
     user = await get_user_by_telegram_id(session, telegram_id)
@@ -64,6 +65,8 @@ async def update_reminder_settings(
     user.reminder_enabled = enabled
     if time:
         user.reminder_time = time
+    if days is not None:
+        user.reminder_days = days
     
     user.updated_at = datetime.utcnow()
     await session.commit()

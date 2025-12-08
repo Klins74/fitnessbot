@@ -66,8 +66,10 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text=MENU["today_workout"])],
             [KeyboardButton(text=MENU["my_progress"])],
+            [KeyboardButton(text=MENU["video_workouts"])],
             [KeyboardButton(text=MENU["ai_trainer"]), KeyboardButton(text=MENU["nutrition"])],
-            [KeyboardButton(text=MENU["edit_plan"]), KeyboardButton(text=MENU["reminders"])]
+            [KeyboardButton(text=MENU["reminders"]), KeyboardButton(text=MENU["contacts"])],
+            [KeyboardButton(text=MENU["edit_plan"])]
         ],
         resize_keyboard=True
     )
@@ -103,4 +105,82 @@ def get_reminders_keyboard(enabled: bool) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=text, callback_data=f"reminder:{action}")],
         [InlineKeyboardButton(text=BUTTONS["back"], callback_data="back_to_menu")]
     ])
+    return keyboard
+
+
+def get_video_categories_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура выбора категорий видео"""
+    from texts_kk import VIDEO_WORKOUTS
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=VIDEO_WORKOUTS["categories"]["strength"], 
+            callback_data="video_cat:strength"
+        )],
+        [InlineKeyboardButton(
+            text=VIDEO_WORKOUTS["categories"]["cardio"], 
+            callback_data="video_cat:cardio"
+        )],
+        [InlineKeyboardButton(
+            text=VIDEO_WORKOUTS["categories"]["stretching"], 
+            callback_data="video_cat:stretching"
+        )],
+        [InlineKeyboardButton(text=BUTTONS["back"], callback_data="back_to_menu")]
+    ])
+    return keyboard
+
+
+def get_video_list_keyboard(category: str) -> InlineKeyboardMarkup:
+    """Клавиатура со списком видео в категории"""
+    from texts_kk import VIDEO_WORKOUTS
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=VIDEO_WORKOUTS["back_to_categories"], 
+            callback_data="video_categories"
+        )]
+    ])
+    return keyboard
+
+
+def get_days_selection_keyboard(selected_days: list = None) -> InlineKeyboardMarkup:
+    """Клавиатура выбора дней недели для напоминаний"""
+    from texts_kk import REMINDERS
+    
+    if selected_days is None:
+        selected_days = []
+    
+    days_map = {
+        "monday": "Пн",
+        "tuesday": "Вт",
+        "wednesday": "Ср",
+        "thursday": "Чт",
+        "friday": "Пт",
+        "saturday": "Сб",
+        "sunday": "Вс",
+    }
+    
+    keyboard_rows = []
+    
+    # Создаём кнопки для каждого дня
+    row = []
+    for day_key, day_short in days_map.items():
+        checkmark = "✅ " if day_key in selected_days else ""
+        row.append(InlineKeyboardButton(
+            text=f"{checkmark}{day_short}",
+            callback_data=f"day_toggle:{day_key}"
+        ))
+        if len(row) == 4:  # По 4 кнопки в ряд
+            keyboard_rows.append(row)
+            row = []
+    
+    if row:  # Добавляем оставшиеся
+        keyboard_rows.append(row)
+    
+    # Кнопка "Готово"
+    keyboard_rows.append([
+        InlineKeyboardButton(text="✅ Готово", callback_data="days_confirm")
+    ])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
     return keyboard
