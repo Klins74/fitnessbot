@@ -64,30 +64,68 @@ async def workout_menu(message: Message):
         today_index = datetime.now().weekday()
         today_name = DAYS_KK[today_index]
         
-        # Получаем тренировку на сегодня
-        workout = await get_workout_for_user(session, user, today_index)
-        
-        if workout:
-            workout_text = f"""🏋️ Бүгін: {today_name}
+        # Показываем недельный план сразу
+        text = f"""🏋️ *Апталық жаттығу жоспары*
 
-📝 Жаттығу: {workout.title}
+📍 Бүгін: *{today_name}*
 
-{format_workout({"title": workout.title, "exercises": workout.exercises_json})}
 """
-            await message.answer(
-                workout_text,
-                reply_markup=get_workout_actions_keyboard(workout.id)
-            )
+        
+        # Собираем план на неделю
+        has_workout_today = False
+        for day_index in range(7):
+            day_name = DAYS_KK[day_index]
+            workout = await get_workout_for_user(session, user, day_index)
+            
+            if day_index == today_index:
+                emoji = "➡️"
+                has_workout_today = workout is not None
+            else:
+                emoji = "📅"
+            
+            if workout:
+                # Показываем интенсивность
+                intensity = "💪" * (2 if "интенсив" in workout.title.lower() else 1)
+                text += f"{emoji} *{day_name}*: {workout.title} {intensity}\n"
+            else:
+                text += f"{emoji} {day_name}: 😴 Демалыс\n"
+        
+        text += "\n💡 3 жаттығу/апта - оңтайлы жүктеме!\n"
+        
+        # Кнопки
+        if has_workout_today:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🏋️ Бүгінгі жаттығуды бастау", callback_data=f"workout_day:{today_index}")],
+                [InlineKeyboardButton(text="📅 Басқа күн таңдау", callback_data="workout:select_day")],
+                [InlineKeyboardButton(text="◀️ Артқа", callback_data="back_to_menu")]
+            ])
         else:
-            # Показываем меню выбора дня
-            text = f"""🏋️ Жаттығулар
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📅 Басқа күн таңдау", callback_data="workout:select_day")],
+                [InlineKeyboardButton(text="◀️ Артқа", callback_data="back_to_menu")]
+            ])
+        
+        await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
+
+
+@router.callback_query(F.data == "workout:select_day")
+async def show_day_selection(callback: CallbackQuery):
+    """Показать выбор дня"""
+    today_index = datetime.now().weekday()
+    today_name = DAYS_KK[today_index]
+    
+    text = f"""📅 *Күн таңдау*
 
 📍 Бүгін: {today_name}
 
-Бүгін демалыс күні! 
-Басқа күнді таңдап, жаттығуды қарай аласыз:"""
-            
-            await message.answer(text, reply_markup=get_workout_menu_keyboard())
+Жаттығуды қарау үшін күнді таңдаңыз:"""
+    
+    await callback.message.edit_text(
+        text,
+        reply_markup=get_workout_menu_keyboard(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("workout_day:"))
@@ -95,6 +133,7 @@ async def show_workout_for_day(callback: CallbackQuery):
     """Показать тренировку для выбранного дня"""
     day_index = int(callback.data.split(":")[1])
     day_name = DAYS_KK[day_index]
+    today_index = datetime.now().weekday()
     
     async with async_session_maker() as session:
         user = await get_user_by_telegram_id(session, callback.from_user.id)
@@ -106,28 +145,76 @@ async def show_workout_for_day(callback: CallbackQuery):
         workout = await get_workout_for_user(session, user, day_index)
         
         if workout:
-            workout_text = f"""📅 {day_name}
+            # Считаем количество упражнений
+            exercises_count = len(workout.exercises_json)
+            
+            workout_text = f"""📅 *{day_name}*
 
-📝 Жаттығу: {workout.title}
+🏋️ *{workout.title}*
+📋 Жаттығулар: {exercises_count}
 
 {format_workout({"title": workout.title, "exercises": workout.exercises_json})}
 """
+            
+            # Кнопки зависят от дня
+            if day_index == today_index:
+                buttons = [
+                    [InlineKeyboardButton(text="✅ Орындадым", callback_data=f"complete:{workout.id}")],
+                    [InlineKeyboardButton(text="📅 Басқа күн", callback_data="workout:select_day")],
+                    [InlineKeyboardButton(text="◀️ Басты мәзір", callback_data="back_to_menu")]
+                ]
+            else:
+                buttons = [
+                    [InlineKeyboardButton(text="📅 Басқа күн", callback_data="workout:select_day")],
+                    [InlineKeyboardButton(text="◀️ Басты мәзір", callback_data="back_to_menu")]
+                ]
+            
             await callback.message.edit_text(
                 workout_text,
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="✅ Орындадым", callback_data=f"complete:{workout.id}")],
-                    [InlineKeyboardButton(text="◀️ Артқа", callback_data="workout:menu")]
-                ])
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+                parse_mode="Markdown"
             )
         else:
+            # Профессиональное сообщение об отдыхе
+            rest_text = f"""😴 *{day_name} - Демалыс күні*
+
+✨ Бұл жоспарланған демалыс!
+
+Демалыс күндері өте маңызды:
+• Бұлшық еттер қалпына келеді
+• Күш артады
+• Жарақаттан сақтайды
+
+💡 Ұсыныстар:
+• Жеңіл серуен
+• Созылу жаттығулары
+• Жақсы ұйықтау
+
+📅 Келесі жаттығу: {self._get_next_workout_day(day_index)}"""
+            
             await callback.message.edit_text(
-                f"📅 {day_name}\n\nБұл күні демалыс 😊",
+                rest_text,
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="◀️ Артқа", callback_data="workout:menu")]
-                ])
+                    [InlineKeyboardButton(text="📅 Басқа күн", callback_data="workout:select_day")],
+                    [InlineKeyboardButton(text="◀️ Басты мәзір", callback_data="back_to_menu")]
+                ]),
+                parse_mode="Markdown"
             )
     
     await callback.answer()
+
+
+def _get_next_workout_day(current_day: int) -> str:
+    """Получить следующий день тренировки"""
+    # Стандартный план: Пн(0), Ср(2), Пт(4)
+    workout_days = [0, 2, 4]
+    
+    for offset in range(1, 8):
+        next_day = (current_day + offset) % 7
+        if next_day in workout_days:
+            return DAYS_KK[next_day]
+    
+    return "Дүйсенбі"
 
 
 @router.callback_query(F.data == "workout:week")
@@ -154,26 +241,10 @@ async def show_week_plan(callback: CallbackQuery):
         await callback.message.edit_text(
             text,
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="◀️ Артқа", callback_data="workout:menu")]
+                [InlineKeyboardButton(text="◀️ Артқа", callback_data="workout:select_day")]
             ])
         )
     
-    await callback.answer()
-
-
-@router.callback_query(F.data == "workout:menu")
-async def back_to_workout_menu(callback: CallbackQuery):
-    """Вернуться в меню тренировок"""
-    today_index = datetime.now().weekday()
-    today_name = DAYS_KK[today_index]
-    
-    text = f"""🏋️ Жаттығулар
-
-📍 Бүгін: {today_name}
-
-Күнді таңдаңыз:"""
-    
-    await callback.message.edit_text(text, reply_markup=get_workout_menu_keyboard())
     await callback.answer()
 
 
